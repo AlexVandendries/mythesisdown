@@ -229,7 +229,15 @@ for (i in 1:100) {
 hist(dataset_randomizedDate_master$deltaAICc)
 hist(best_model_randomized_master$deltaAICc)
 
+#Here I will show an example of calculated the probability of getting a best model with a deltaAICc value that we get or lower using the randomized master list of deltaAICcs we just made and plotted
+#First I will create a dataset of of 100 values from rnorm to serve as the best_model_randomized_master$deltaAICc distribution
+distribution <- rnorm(1000, mean = 0, sd = 1)
+#Then I create an empirical cumulative distribution function from that sampled distribution
+ecdf_func <- ecdf(distribution)
+#Finally this will calculate the probability that we got the deltaAICc value or lower (in this case it is just -2) 
+prob <- ecdf_func(-2)
 ```
+
 
 
 
