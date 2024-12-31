@@ -121,3 +121,117 @@ Many of the symbols you will need can be found on the math page <https://web.ree
 
 You will probably find the resources at <https://www.lecb.ncifcrf.gov/~toms/latex.html> helpful, particularly the links to bsts for various journals. You may also be interested in TeXShade for nucleotide typesetting (<https://homepages.uni-tuebingen.de/beitz/txe.html>).  Be sure to read the proceeding chapter on graphics and tables.
 
+----------------------------------------------------------------------------------------------
+
+Here we will explore the climate data for the sandy site.
+```{r, echo = F}
+sandy_climate <- read_csv("~/Desktop/FALL_2024/Thesis/SANDY_PRISM_ppt_tmin_tmean_tmax_vpdmin_vpdmax_stable_4km_19810101_20240101_45.4727_-122.2958.csv")
+sandy_climate_info <- sandy_climate %>%
+  slice(1:10)
+sandy_climate <- sandy_climate %>%
+  slice(11:15716) %>% 
+  separate(col = `PRISM Time Series Data`, c("date", "ppt", "tmin", "tmean", "tmax", "vpdmin", "vpdmax"), ",")
+
+sandy_climate$date <- as.Date(sandy_climate$date)
+```
+```{r, echo = T}
+plot(sandy_climate$date,sandy_climate$vpdmax, xlim = c(as.Date("1981-01-01"), as.Date("2024-01-01")))
+```
+
+###Simulating proxy anatomical time series to test using climwin
+
+###First, here's data downloaded from test image from AutoCellRow (called it 1981)
+```{r}
+test <- read_csv("~/Desktop/FALL_2024/Thesis/test-quant-wood-anatomy.csv")
+
+new <- c()
+date <- c()
+for (i in 1:5) {
+  for (i in 1:43) {
+  new <- c(new,sample(x=test[`cell type` = "Late"]$`doule wall size`, size=10, replace = TRUE))
+  date <- c(date, i+1980,i+1980,i+1980,i+1980,i+1980,i+1980,i+1980,i+1980,i+1980,i+1980)
+}
+}
+simdata <- data.frame(date, new)
+simsum <- simdata %>% 
+  group_by(as.factor(date)) %>%
+  summarize(mean = mean(new)) %>%
+  mutate(date = `as.factor(date)`) %>%
+  select(date, mean)
+```
+##Now we have a presumably randomly simulated anatomical time series with yearly mean latewood double wall size as the biological variable that we can compare with the climate data
+
+```{r}
+#preparing sandy_climate for slidingwin formats (dd/mm/yyyy)
+sandy_climate <- sandy_climate %>%
+  separate(col="date", c("Y","mm","dd"),"-") %>%
+  mutate(date = paste0(dd,"/",mm,"/",Y)) %>%
+  select(date,ppt,tmin,tmean,tmax,vpdmin,vpdmax)
+sandy_climate$vpdmax <- as.numeric(sandy_climate$vpdmax)
+
+#preparing simsum for slidingwin format (dd/mm/yyyy)
+###since we are averaging latewood growth for the year, we want to choose a date for the biological data of the end of the latewood growth (guessing it is the middle of autumn October 30th)
+simdata <- simdata %>% 
+  filter(date != 1981)
+simdata <- simdata %>%
+  mutate(Date = paste0("30/10/",date)) %>%
+  select(Date,new)
+```
+
+##using climwin
+```{r}
+##Here i try slidingwin using vpdmax on double wall size means using a linear model and considering the past 16 months (480 days)
+output <- slidingwin(xvar=list(vpdmax=sandy_climate$vpdmax),
+                     cdate=sandy_climate$date,
+                     bdate=simdata$Date,
+                     baseline=lm(new ~ 1, data = simdata),
+                     range=c(480,0),
+                     type="relative",stat="mean",
+                     func=c("lin"),cmissing=FALSE,cinterval="day")
+
+dataset <- output[[1]][[3]]
+plotdelta(dataset=dataset)
+plotall(dataset=dataset)
+```
+
+```{r}
+##Now we can randomize the dates for the biological data in order to check the probability of getting the climate response taht we got using climwin
+
+#Creating new dataframes to hold the randomized values generated in the for loop
+simdata_randomizedDate <- simdata
+dataset_randomizedDate_master <- data.frame(matrix(nrow=0,ncol=length(colnames(dataset))))
+colnames(dataset_randomizedDate_master) <- colnames(dataset)
+best_model_randomized_master <- data.frame(matrix(nrow=0,ncol=1))
+colnames(best_model_randomized_master) <- c("deltaAICc")
+
+#will do this 100 times when it is for real (hopefully on diff computer!)
+for (i in 1:100) {
+  #Randomizing the date column  
+  simdata_randomizedDate$Date <- sample(simdata$Date, replace = FALSE)
+  #running slidingwin on randomized data
+    output_randomized <- slidingwin(
+      xvar=list(vpdmax=sandy_climate$vpdmax),
+      cdate=sandy_climate$date,
+      bdate=simdata_randomizedDate$Date,
+      baseline=lm(new ~ 1, data = simdata_randomizedDate),
+      range=c(480,0),
+      type="relative",stat="mean",
+      func=c("lin"),cmissing=FALSE,cinterval="day")
+    #Extracting the dataset with deltaAICc values
+    dataset_randomized <- output_randomized[[1]][[3]]
+    #adding the best model to the master list
+    best_model_randomized_master <- rbind(best_model_randomized_master,dataset_randomized$deltaAICc[1])
+    #Adding these values to the master dataframe that will be used to find probabilities
+    dataset_randomizedDate_master <- rbind(dataset_randomizedDate_master,dataset_randomized)
+}
+
+#Visualizing the distribution of deltaAICc values
+hist(dataset_randomizedDate_master$deltaAICc)
+hist(best_model_randomized_master$deltaAICc)
+
+```
+
+
+
+
+
